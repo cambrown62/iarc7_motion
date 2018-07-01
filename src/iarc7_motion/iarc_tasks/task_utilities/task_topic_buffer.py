@@ -1,13 +1,14 @@
-from nav_msgs.msg import Odometry
-
-from iarc7_msgs.msg import BoolStamped
-from iarc7_msgs.msg import OdometryArray
-from iarc7_motion.linear_motion_profile_generator import LinearMotionProfileGenerator
-
-from iarc_tasks.task_utilities.obstacle_avoid_helper import ObstacleAvoider
-
 import rospy
 import tf2_ros
+import actionlib
+
+from nav_msgs.msg import Odometry
+
+from iarc7_msgs.msg import BoolStamped, OdometryArray, PlanAction
+
+from iarc7_motion.linear_motion_profile_generator import LinearMotionProfileGenerator
+from iarc_tasks.task_utilities.obstacle_avoid_helper import ObstacleAvoider
+from iarc7_safety.iarc_safety_exception import IARCFatalSafetyException
 
 class TaskTopicBuffer(object):
     def __init__(self):
@@ -17,7 +18,7 @@ class TaskTopicBuffer(object):
         except KeyError as e:
             rospy.logerr('Could not lookup a parameter for task topic buffer')
             raise
-        
+
         self._landed_message = None
         self._roomba_array = None
         self._drone_odometry = None
@@ -41,12 +42,24 @@ class TaskTopicBuffer(object):
         self._obstacle_avoider = ObstacleAvoider(self._tf_buffer)
         self._obstacle_avoider.wait_until_ready(self._startup_timeout)
 
+        # client to planner Action Server
+        self._planner_client = actionlib.SimpleActionClient('planner_request', PlanAction)
+
+        if not self._planner_client.wait_for_server(self._startup_timeout):
+            raise IARCFatalSafetyException(
+                'TaskTopicBuffer could not initialize planner action client')
 
         self._task_message_dictionary = {}
 
         self._roomba_tracking_pub = rospy.Publisher(
             'roomba_tracking_status', Odometry,
             queue_size=10)
+
+    def make_plan_request(self, goal, feedback_callback):
+        self._planner_client.send_goal(goal, None, None, feedback_callback)
+
+    def cancel_plan_goal(self):
+        self._planner_client.cancel_goal()
 
     def _receive_roomba_status(self, data):
         self._roomba_array = data
