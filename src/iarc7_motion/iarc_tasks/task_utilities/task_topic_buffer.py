@@ -55,8 +55,8 @@ class TaskTopicBuffer(object):
             'roomba_tracking_status', Odometry,
             queue_size=10)
 
-    def make_plan_request(self, goal, feedback_callback):
-        self._planner_client.send_goal(goal, None, None, feedback_callback)
+    def make_plan_request(self, request, feedback_callback):
+        self._planner_client.send_goal(request, None, None, feedback_callback)
 
     def cancel_plan_goal(self):
         self._planner_client.cancel_goal()

@@ -20,15 +20,35 @@ class TestPlannerTask(AbstractTask):
         self._request_sent = False
 
     def get_desired_command(self):
-
         if not self._request_sent:
-            goal = PlanGoal()
-            goal.goal.motion_point.pose.position.x = 5
-            goal.goal.motion_point.pose.position.y = 5
-            goal.goal.motion_point.pose.position.z = 1
+            if self.topic_buffer.has_odometry_message():
+                curr_odom = topic_buffer.get_odometry_message()
+                _pose = curr_odom.pose.pose.point
+                _vel = curr_odom.twist.twist.linear
 
-            self.topic_buffer.make_plan_request(goal, self._feedback_callback)
-            self._request_sent = True
+                request = PlanGoal()
+
+                start = MotionPointStamped()
+                start.motion_point.pose.position.x = _pose.x
+                start.motion_point.pose.position.y = _pose.y
+                start.motion_point.pose.position.z = _pose.z
+
+                start.motion_point.twist.linear.x = _vel.x
+                start.motion_point.twist.linear.y = _vel.y
+                start.motion_point.twist.linear.z = _vel.z
+
+                goal = MotionPointStamped()
+                goal.motion_point.pose.position.x = 5
+                goal.motion_point.pose.position.y = 5
+                goal.motion_point.pose.position.z = 1
+
+                request.start = start
+                request.goal = goal
+
+                self.topic_buffer.make_plan_request(request, self._feedback_callback)
+                self._request_sent = True
+            else:
+                rospy.logerr('No odom available to make plan request.')
 
         if self._plan_canceled:
             return (TaskDone(), NopCommand())
