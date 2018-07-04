@@ -22,7 +22,7 @@ class TestPlannerTask(AbstractTask):
     def get_desired_command(self):
         if not self._request_sent:
             if self.topic_buffer.has_odometry_message():
-                curr_odom = topic_buffer.get_odometry_message()
+                curr_odom = self.topic_buffer.get_odometry_message()
                 _pose = curr_odom.pose.pose.point
                 _vel = curr_odom.twist.twist.linear
 
