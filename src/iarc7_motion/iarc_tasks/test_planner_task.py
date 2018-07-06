@@ -23,14 +23,14 @@ class TestPlannerTask(AbstractTask):
         if not self._request_sent:
             if self.topic_buffer.has_odometry_message():
                 curr_odom = self.topic_buffer.get_odometry_message()
-                _pose = curr_odom.pose.pose.point
+                _pose = curr_odom.pose.pose.position
                 _vel = curr_odom.twist.twist.linear
 
                 request = PlanGoal()
 
                 start = MotionPointStamped()
-                start.motion_point.pose.position.x = _pose.x
-                start.motion_point.pose.position.y = _pose.y
+                start.motion_point.pose.position.x = _pose.x + 10
+                start.motion_point.pose.position.y = _pose.y + 10
                 start.motion_point.pose.position.z = _pose.z
 
                 start.motion_point.twist.linear.x = _vel.x
