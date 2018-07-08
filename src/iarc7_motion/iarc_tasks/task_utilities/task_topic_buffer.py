@@ -57,6 +57,8 @@ class TaskTopicBuffer(object):
 
     def make_plan_request(self, request, feedback_callback):
         self._planner_client.send_goal(request, None, None, feedback_callback)
+        self._planner_client.wait_for_result()
+        return self._planner_client.get_result()
 
     def cancel_plan_goal(self):
         self._planner_client.cancel_goal()

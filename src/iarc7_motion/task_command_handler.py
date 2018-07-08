@@ -62,13 +62,14 @@ class TaskCommandHandler:
             task_commands.GroundInteractionCommand: self._handle_ground_interaction_command,
             task_commands.ConfigurePassthroughMode: self._handle_passthrough_mode_command,
             task_commands.AngleThrottleCommand: self._handle_passthrough_command,
-            task_commands.ResetLinearProfileCommand: self._handle_reset_linear_profile_command
+            task_commands.ResetLinearProfileCommand: self._handle_reset_linear_profile_command,
+            task_commands.GlobalPlanCommand: self._handle_global_plan_command
             }
 
         self._motion_profile_generator = LinearMotionProfileGenerator.get_linear_motion_profile_generator()
 
     # takes in new task from HLM Controller
-    # transition is of type TransitionData 
+    # transition is of type TransitionData
     def new_task(self, task, transition):
         self._task = task
         self._transition = transition
@@ -81,10 +82,10 @@ class TaskCommandHandler:
             raise IARCFatalSafetyException('No task running to cancel')
         try:
             ready = self._task.cancel()
-            if ready: 
+            if ready:
                 self._task = None
                 self._task_state = task_states.TaskCanceled()
-            else: 
+            else:
                 rospy.logwarn('Task has not completed')
             return True
         except Exception as e:
@@ -104,7 +105,7 @@ class TaskCommandHandler:
     # returns last twist sent to LLM
     def get_last_twist(self):
         return self._last_twist
-    
+
     # public method wrapper for getting task state
     def get_state(self):
         return self._task_state
@@ -137,9 +138,9 @@ class TaskCommandHandler:
                 self._task_state = task_states.TaskAborted(msg='Exception getting task command')
                 return (task_commands.NopCommand(),)
 
-            try: 
+            try:
                 _task_state = task_request[0]
-            except (TypeError, IndexError) as e: 
+            except (TypeError, IndexError) as e:
                 rospy.logerr('Exception getting task state')
                 rospy.logerr(str(e))
                 rospy.logerr(traceback.format_exc())
@@ -147,25 +148,25 @@ class TaskCommandHandler:
                 self._task = None
                 self._task_state = task_states.TaskAborted(msg='Exception getting task state')
                 return (task_commands.NopCommand(),)
-            
+
             if issubclass(type(_task_state), task_states.TaskState):
                 self._task_state = _task_state
-            else: 
+            else:
                 rospy.logerr('Task provided unknown state')
                 rospy.logerr('Task Command Handler aborted task')
                 self._task = None
                 self._task_state = task_states.TaskAborted(msg='Error getting task state')
                 return (task_commands.NopCommand(),)
-            
-            try: 
+
+            try:
                 if isinstance(self._task_state, task_states.TaskDone):
                     self._task = None
                     return task_request[1:]
                 elif isinstance(self._task_state, task_states.TaskRunning):
                     return task_request[1:]
-                else: 
+                else:
                     self._task = None
-            except (TypeError, IndexError) as e: 
+            except (TypeError, IndexError) as e:
                 rospy.logerr('Exception getting task request')
                 rospy.logerr(str(e))
                 rospy.logerr(traceback.format_exc())
@@ -175,7 +176,7 @@ class TaskCommandHandler:
                 return (task_commands.NopCommand(),)
         elif isinstance(self._task_state, task_states.TaskCanceled):
             pass
-        else: 
+        else:
             raise IARCFatalSafetyException('TaskCommandHandler ran with no task running.')
 
         # no action to take, return a Nop
@@ -184,7 +185,7 @@ class TaskCommandHandler:
     """
     Command Handlers
 
-    Types: 
+    Types:
         ground interaction: these include takeoff
         nop command: do nothing
         velocity command: requests a velocity (x, y, z, and angular)
@@ -254,7 +255,7 @@ class TaskCommandHandler:
         goal = GroundInteractionGoal(interaction_type=ground_interaction_command.interaction_type)
         # Sends the goal to the action server.
         self._ground_interaction_client.send_goal(goal, done_cb=self.handle_ground_interaction_done)
-    
+
     # callback for status on ground interaction commands
     def handle_ground_interaction_done(self, status, result):
         if self._ground_interaction_task_callback is not None:
@@ -271,6 +272,10 @@ class TaskCommandHandler:
             self._ground_interaction_task_callback = None
         else:
             rospy.logerr('Ground interaction done callback received with no task callback available')
+
+    def _handle_global_plan_command(self, plan_command):
+        self._last_twist = plan_command.plan.motion_points[-1].motion_point.twist
+        self._motion_point_pub.publish(plan_command.plan)
 
     """
     Sends motion point stamped array to LLM

@@ -16,7 +16,7 @@ takeoff_velocity        : 0.5
 takeoff_acceleration    : 0.3
 # Height at which to consider takeoff finished in meters
 # Should be higher than min_maneuver_height
-takeoff_complete_height: 0.8
+takeoff_complete_height: 2.0
 # Deviance from takeoff height from which to enter stabilize mode
 takeoff_complete_height_tolerance: 0.15
 # Length of time to stabilize after takeoff
@@ -36,10 +36,10 @@ control_lag             : 0.3
 
 # GO TO ROOMBA
 go_to_roomba_tolerance: 0.3
+go_to_roomba_height: 1.5
 
 # TRACK ROOMBA
 # height at which roomba tracking takes place
-# also used for GO TO ROOMBA
 track_roomba_height: 1.5
 # maximum radial distance from roomba
 max_roomba_dist: 2.0

@@ -68,7 +68,6 @@ def interpolate_motion_points(first, second, time):
 
     return result
 
-
 # Generates fully defined motion profiles
 class LinearMotionProfileGenerator(object):
     def __init__(self, start_motion_point):
@@ -103,6 +102,9 @@ class LinearMotionProfileGenerator(object):
             LinearMotionProfileGenerator.linear_motion_profile_generator = LinearMotionProfileGenerator(
                 MotionPointStamped())
         return LinearMotionProfileGenerator.linear_motion_profile_generator
+
+    def set_global_plan(self, plan):
+        self._last_motion_plan = plan
 
     # Get a starting motion point for a given time
     def _get_start_point(self,

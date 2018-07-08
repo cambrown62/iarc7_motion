@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 import rospy
+import threading
+import time
 
 from .abstract_task import AbstractTask
 
@@ -7,30 +9,45 @@ from iarc_tasks.task_states import (TaskRunning,
                                     TaskDone,
                                     TaskCanceled,
                                     TaskAborted)
-from iarc_tasks.task_commands import NopCommand
+from iarc_tasks.task_commands import NopCommand, GlobalPlanCommand
 
 from iarc7_msgs.msg import PlanGoal, PlanAction, MotionPointStamped
+
+class TestPlannerTaskState(object):
+    init = 0
+    waiting = 1
+    done = 2
+
 
 class TestPlannerTask(AbstractTask):
 
     def __init__(self, task_request):
         super(TestPlannerTask, self).__init__()
 
-        self._plan_canceled = False
-        self._request_sent = False
+        self._lock = threading.RLock()
+
+        self._planning_lag = rospy.Duration(.25)
+        self._coordinate_frame_offset = 10
+
+        self._plan = None
+
+        self._linear_gen = self.topic_buffer.get_linear_motion_profile_generator()
+
+        self._state = TestPlannerTaskState.init
 
     def get_desired_command(self):
-        if not self._request_sent:
-            if self.topic_buffer.has_odometry_message():
-                curr_odom = self.topic_buffer.get_odometry_message()
-                _pose = curr_odom.pose.pose.position
-                _vel = curr_odom.twist.twist.linear
+        with self._lock:
+            if self._state == TestPlannerTaskState.init:
+                starting = self._linear_gen.expected_point_at_time(rospy.Time.now() + self._planning_lag)
+
+                _pose = starting.motion_point.pose.position
+                _vel = starting.motion_point.twist.linear
 
                 request = PlanGoal()
 
                 start = MotionPointStamped()
-                start.motion_point.pose.position.x = _pose.x + 10
-                start.motion_point.pose.position.y = _pose.y + 10
+                start.motion_point.pose.position.x = _pose.x + self._coordinate_frame_offset
+                start.motion_point.pose.position.y = _pose.y + self._coordinate_frame_offset
                 start.motion_point.pose.position.z = _pose.z
 
                 start.motion_point.twist.linear.x = _vel.x
@@ -45,21 +62,28 @@ class TestPlannerTask(AbstractTask):
                 request.start = start
                 request.goal = goal
 
-                self.topic_buffer.make_plan_request(request, self._feedback_callback)
-                self._request_sent = True
-            else:
-                rospy.logerr('No odom available to make plan request.')
+                x = time.time()
 
-        if self._plan_canceled:
-            return (TaskDone(), NopCommand())
-        else:
-            return (TaskRunning(),)
+                result_ = self.topic_buffer.make_plan_request(request, self._feedback_callback)
+
+                rospy.logerr('time to get result: ' + str(time.time()-x))
+
+                self._plan = result_.plan
+
+                self._linear_gen.set_global_plan(self._plan)
+
+                self._state = TestPlannerTaskState.waiting
+
+            if self._state == TestPlannerTaskState.waiting:
+                self._state = TestPlannerTaskState.done
+                return (TaskRunning(), GlobalPlanCommand(self._plan))
+
+            return (TaskRunning(), NopCommand())
 
     def _feedback_callback(self, msg):
-        self._feedback = msg
-        rospy.logwarn('Feedback recieved')
-        self.topic_buffer.cancel_plan_goal()
-        self._plan_canceled = True
+        with self._lock:
+            self._feedback = msg
+            rospy.logwarn('Feedback recieved')
 
     def cancel(self):
         rospy.loginfo("TestPlannerTask canceling")
