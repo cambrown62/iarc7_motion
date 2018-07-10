@@ -1,6 +1,7 @@
 import rospy
 import tf2_ros
 import actionlib
+import time
 
 from nav_msgs.msg import Odometry
 
@@ -56,7 +57,8 @@ class TaskTopicBuffer(object):
             queue_size=10)
 
     def make_plan_request(self, request, feedback_callback):
-        self._planner_client.send_goal(request, None, None, feedback_callback)
+        rospy.logerr('REQUEST MADE NOW')
+        self._planner_client.send_goal(request, done_cb=feedback_callback)
 
     def cancel_plan_goal(self):
         self._planner_client.cancel_goal()

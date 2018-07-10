@@ -4,6 +4,7 @@ import sys
 import traceback
 import actionlib
 import rospy
+import time
 
 import iarc_tasks.task_states as task_states
 import iarc_tasks.task_commands as task_commands
@@ -274,6 +275,8 @@ class TaskCommandHandler:
             rospy.logerr('Ground interaction done callback received with no task callback available')
 
     def _handle_global_plan_command(self, plan_command):
+        rospy.logerr('TIME AT PUBLISH COMMAND: ' + str(time.time()))
+        self._motion_profile_generator.set_global_plan(plan_command.plan)
         self._last_twist = plan_command.plan.motion_points[-1].motion_point.twist
         self._motion_point_pub.publish(plan_command.plan)
 
