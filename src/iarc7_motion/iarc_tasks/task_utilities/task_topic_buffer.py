@@ -57,7 +57,6 @@ class TaskTopicBuffer(object):
             queue_size=10)
 
     def make_plan_request(self, request, feedback_callback):
-        rospy.logerr('REQUEST MADE NOW')
         self._planner_client.send_goal(request, done_cb=feedback_callback)
 
     def cancel_plan_goal(self):

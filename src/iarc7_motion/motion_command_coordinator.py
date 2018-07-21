@@ -37,14 +37,10 @@ class MotionCommandCoordinator:
     def __init__(self, action_server):
         # action server for getting requests from AI
         self._action_server = action_server
-        
+
         # current state of motion coordinator
         self._task = None
-        self._first_task_seen = False
-
-        # used for timeouts & extrapolating 
-        self._time_of_last_task = None
-        self._timeout_vel_sent = False 
+        self._task_just_ended = False
 
         # to keep things thread safe
         self._lock = threading.RLock()
@@ -56,9 +52,9 @@ class MotionCommandCoordinator:
         self._task_command_handler = TaskCommandHandler()
 
         self._idle_obstacle_avoider = IdleObstacleAvoider()
-        self._avoid_magnitude = rospy.get_param("~obst_avoid_magnitude") 
+        self._avoid_magnitude = rospy.get_param("~obst_avoid_magnitude")
 
-        # safety 
+        # safety
         self._safety_client = SafetyClient('motion_command_coordinator')
         self._safety_land_complete = False
         self._safety_land_requested = False
@@ -70,8 +66,6 @@ class MotionCommandCoordinator:
         try:
             # update rate for motion coordinator
             self._update_rate = rospy.get_param('~update_rate')
-            # task timeout values
-            self._task_timeout = rospy.Duration(rospy.get_param('~task_timeout'))
             # startup timeout
             self._startup_timeout = rospy.Duration(rospy.get_param('~startup_timeout'))
         except KeyError as e:
@@ -106,7 +100,7 @@ class MotionCommandCoordinator:
             with self._lock:
                 # Exit immediately if fatal
                 if self._safety_client.is_fatal_active():
-                    raise IARCFatalSafetyException('Safety Client is fatal active') 
+                    raise IARCFatalSafetyException('Safety Client is fatal active')
                 elif self._safety_land_complete:
                     return
 
@@ -120,11 +114,6 @@ class MotionCommandCoordinator:
                     self._safety_land_requested = True
                     self._state_monitor.signal_safety_active()
 
-                # set the time of last task to now if we have not seen a task yet
-                if not self._first_task_seen:
-                    self._time_of_last_task = rospy.Time.now()
-                    self._first_task_seen = True
-
                 if self._task is None and self._action_server.has_new_task():
                     new_task = self._action_server.get_new_task()
 
@@ -132,11 +121,11 @@ class MotionCommandCoordinator:
                         self._time_of_last_task = None
                         self._task = new_task
                         self._task_command_handler.new_task(new_task, self._get_current_transition())
-                    else: 
+                    else:
                         rospy.logwarn('Illegal task transition request requested in motion coordinator. Aborting requested task.')
                         self._action_server.set_aborted()
-                
-                if self._task is not None: 
+
+                if self._task is not None:
                     no_error_canceling = True
                     if self._action_server.is_canceled():
                         no_error_canceling = self._task_command_handler.cancel_task()
@@ -172,32 +161,33 @@ class MotionCommandCoordinator:
                     # as soon as we set a task to None, start time
                     # and send ending state to State Monitor
                     if self._task is None:
-                        self._time_of_last_task = rospy.Time.now()
-                        self._timeout_vel_sent = False
+                        self._task_just_ended = True
                         self._state_monitor.set_last_task_end_state(task_state)
                 # No task is running, run obstacle avoider
                 else:
                     avoid_vector = self._idle_obstacle_avoider.get_safest(self._avoid_magnitude)
-                    avoid_twist = TwistStamped() 
+                    avoid_twist = TwistStamped()
                     avoid_twist.header.stamp = rospy.Time.now()
                     avoid_twist.twist.linear.x = avoid_vector[0]
                     avoid_twist.twist.linear.y = avoid_vector[1]
                     self._task_command_handler.send_timeout(avoid_twist)
                     rospy.logwarn_throttle(1.0, 'Task running timeout. Running obstacle avoider')
 
-                rate.sleep()
+                if not self._task_just_ended:
+                    rate.sleep()
+
+                self._task_just_ended = False
 
     # fills out the Intermediary State for the task
     def _get_current_transition(self):
-        state = TransitionData() 
+        state = TransitionData()
         state.last_twist = self._task_command_handler.get_last_twist()
         state.last_task_ending_state = self._task_command_handler.get_state()
-        state.timeout_sent = self._timeout_vel_sent
         return self._state_monitor.fill_out_transition(state)
 
     # callback for safety task completition
     def _safety_task_complete_callback(self, status, response):
-        with self._lock: 
+        with self._lock:
             if response.success:
                 rospy.logwarn('Motion Coordinator supposedly safely landed the aircraft')
             else:
@@ -210,7 +200,7 @@ if __name__ == '__main__':
     # action server for getting action/motion requests
     action_server = IarcTaskActionServer()
     motion_command_coordinator = MotionCommandCoordinator(action_server)
-    
+
     try:
         motion_command_coordinator.run()
     except Exception, e:

@@ -14,6 +14,11 @@ from iarc_tasks.task_commands import NopCommand, GlobalPlanCommand
 
 from iarc7_msgs.msg import PlanGoal, PlanAction, MotionPointStamped
 
+class XYZTranslationTaskState(object):
+    INIT = 1
+    WAITING = 2
+    PLAN_RECEIVED = 3
+    COMPLETING = 4
 
 class XYZTranslationTask(AbstractTask):
     def __init__(self, task_request):
@@ -24,8 +29,9 @@ class XYZTranslationTask(AbstractTask):
         self._transition = None
         self._plan = None
         self._feedback = None
-        self._feedback_receieved = False
-        self._starting = True
+
+        self._complete_time = None
+        self._sent_plan_time = None
 
         self._corrected_start_x = None
         self._corrected_start_y = None
@@ -38,10 +44,9 @@ class XYZTranslationTask(AbstractTask):
         self._linear_gen = self.topic_buffer.get_linear_motion_profile_generator()
 
         try:
+            self._PLANNING_TIMEOUT = rospy.Duration(rospy.get_param('~planning_timeout'))
             self._PLANNING_LAG = rospy.Duration(rospy.get_param('~planning_lag'))
             self._COORDINATE_FRAME_OFFSET = rospy.get_param('~planner_coordinate_frame_offset')
-            self._TRANSLATION_XYZ_TOLERANCE = rospy.get_param('~translation_xyz_tolerance')
-            self._TRANSFORM_TIMEOUT = rospy.get_param('~transform_timeout')
             self._MIN_MANEUVER_HEIGHT = rospy.get_param('~min_maneuver_height')
         except KeyError as e:
             rospy.logerr('Could not lookup a parameter for xyztranslation task')
@@ -56,12 +61,18 @@ class XYZTranslationTask(AbstractTask):
         self._corrected_goal_y = task_request.y_position + self._COORDINATE_FRAME_OFFSET
         self._corrected_goal_z = task_request.z_position
 
+        self._state = XYZTranslationTaskState.INIT
+
     def get_desired_command(self):
         with self._lock:
-            rospy.logerr('TASK STARTS AT: ' + str(time.time()))
-
             if self._canceled:
                 return (TaskCanceled(),)
+
+            if self._state == XYZTranslationTaskState.COMPLETING:
+                if (rospy.Time.now() + rospy.Duration(.10)) >= self._complete_time:
+                    return (TaskDone(),)
+                else:
+                    return (TaskRunning(), NopCommand())
 
             expected_time = rospy.Time.now() + self._PLANNING_LAG
             starting = self._linear_gen.expected_point_at_time(expected_time)
@@ -73,28 +84,38 @@ class XYZTranslationTask(AbstractTask):
             self._corrected_start_y = _pose.y + self._COORDINATE_FRAME_OFFSET
             self._corrected_start_z = _pose.z
 
-            done = (abs(self._corrected_start_x-self._corrected_goal_x ) < .05 and
-                    abs(self._corrected_start_y-self._corrected_goal_y) < .05 and
-                    abs(self._corrected_start_z-self._corrected_goal_z) < .05)
+            _distance_to_goal = math.sqrt(
+                        (self._corrected_start_x-self._corrected_goal_x)**2 +
+                        (self._corrected_start_y-self._corrected_goal_y)**2)
 
-            if done:
+            if _distance_to_goal < .75:
                 if self._plan is not None:
-                    return (TaskDone(), GlobalPlanCommand(self._plan))
+                    self._state = XYZTranslationTaskState.COMPLETING
+                    self._complete_time = self._plan.motion_points[-1].header.stamp
+                    return (TaskRunning(), GlobalPlanCommand(self._plan))
                 else:
-                    return (TaskDone(),)
+                    rospy.logerr('XYZTranslationTask: Plan is None but we are done')
+                    return (TaskFailed(msg='Started too close to goal to do anything'),)
 
-            if self._feedback_receieved or self._starting:
-                self._starting = False
-                self._feedback_receieved = False
+            if self._state == XYZTranslationTaskState.INIT:
+                self._sent_plan_time = rospy.Time.now()
+                self.topic_buffer.make_plan_request(self._generate_request(expected_time),
+                                                    self._feedback_callback)
+                self._state = XYZTranslationTaskState.WAITING
+
+            if self._state == XYZTranslationTaskState.PLAN_RECEIVED:
                 self.topic_buffer.make_plan_request(self._generate_request(expected_time),
                                                     self._feedback_callback)
 
                 if self._feedback is not None and self._feedback.success:
-                    # send LLM the plan we recieved
+                    self._state = XYZTranslationTaskState.WAITING
+                    self._sent_plan_time = rospy.Time.now()
+                    # send LLM the plan we received
                     return (TaskRunning(), GlobalPlanCommand(self._plan))
-                else:
-                    # planning failed, nop
-                    return (TaskRunning(), NopCommand())
+
+            if (self._sent_plan_time is not None and
+                (rospy.Time.now() - self._sent_plan_time) > self._PLANNING_TIMEOUT):
+                return (TaskFailed(msg='XYZ Translate: planner took too long to plan'),)
 
             return (TaskRunning(), NopCommand())
 
@@ -122,10 +143,9 @@ class XYZTranslationTask(AbstractTask):
 
     def _feedback_callback(self, status, msg):
         with self._lock:
-            rospy.logerr('FEEDBACK AT: ' + str(time.time()))
             self._feedback = msg
             self._plan = msg.plan
-            self._feedback_receieved = True
+            self._state = XYZTranslationTaskState.PLAN_RECEIVED
 
     def cancel(self):
         rospy.loginfo('XYZTranslationTask canceled')

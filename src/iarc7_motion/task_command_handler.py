@@ -84,7 +84,6 @@ class TaskCommandHandler:
         try:
             ready = self._task.cancel()
             if ready:
-                self._task = None
                 self._task_state = task_states.TaskCanceled()
             else:
                 rospy.logwarn('Task has not completed')
@@ -151,6 +150,11 @@ class TaskCommandHandler:
                 return (task_commands.NopCommand(),)
 
             if issubclass(type(_task_state), task_states.TaskState):
+                if isinstance(self._task_state, task_states.TaskCanceled):
+                    if not isinstance(_task_state, task_states.TaskCanceled):
+                        rospy.logerr('TaskCommandHandler: Task was supposed to return TaskCanceled')
+                        self._task = None
+                        return (task_commands.NopCommand(),)
                 self._task_state = _task_state
             else:
                 rospy.logerr('Task provided unknown state')
@@ -165,6 +169,9 @@ class TaskCommandHandler:
                     return task_request[1:]
                 elif isinstance(self._task_state, task_states.TaskRunning):
                     return task_request[1:]
+                elif isinstance(self._task_state, task_states.TaskCanceled):
+                    self._task = None
+                    return task_request[1:]
                 else:
                     self._task = None
             except (TypeError, IndexError) as e:
@@ -175,8 +182,6 @@ class TaskCommandHandler:
                 self._task = None
                 self._task_state = task_states.TaskAborted(msg='Exception getting task request')
                 return (task_commands.NopCommand(),)
-        elif isinstance(self._task_state, task_states.TaskCanceled):
-            pass
         else:
             raise IARCFatalSafetyException('TaskCommandHandler ran with no task running.')
 
@@ -275,7 +280,6 @@ class TaskCommandHandler:
             rospy.logerr('Ground interaction done callback received with no task callback available')
 
     def _handle_global_plan_command(self, plan_command):
-        rospy.logerr('TIME AT PUBLISH COMMAND: ' + str(time.time()))
         self._motion_profile_generator.set_global_plan(plan_command.plan)
         self._last_twist = plan_command.plan.motion_points[-1].motion_point.twist
         self._motion_point_pub.publish(plan_command.plan)
