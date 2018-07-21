@@ -2,7 +2,6 @@ import math
 import rospy
 import tf2_ros
 import threading
-import time
 
 from .abstract_task import AbstractTask
 from iarc_tasks.task_states import (TaskRunning,
@@ -27,6 +26,7 @@ class XYZTranslationTask(AbstractTask):
         self._canceled = False
 
         self._transition = None
+
         self._plan = None
         self._feedback = None
 
@@ -47,6 +47,7 @@ class XYZTranslationTask(AbstractTask):
             self._PLANNING_TIMEOUT = rospy.Duration(rospy.get_param('~planning_timeout'))
             self._PLANNING_LAG = rospy.Duration(rospy.get_param('~planning_lag'))
             self._COORDINATE_FRAME_OFFSET = rospy.get_param('~planner_coordinate_frame_offset')
+            self._DONE_REPLAN_DIST = rospy.get_param('~done_replanning_radius')
             self._MIN_MANEUVER_HEIGHT = rospy.get_param('~min_maneuver_height')
         except KeyError as e:
             rospy.logerr('Could not lookup a parameter for xyztranslation task')
@@ -88,7 +89,7 @@ class XYZTranslationTask(AbstractTask):
                         (self._corrected_start_x-self._corrected_goal_x)**2 +
                         (self._corrected_start_y-self._corrected_goal_y)**2)
 
-            if _distance_to_goal < .75:
+            if _distance_to_goal < self._DONE_REPLAN_DIST:
                 if self._plan is not None:
                     self._state = XYZTranslationTaskState.COMPLETING
                     self._complete_time = self._plan.motion_points[-1].header.stamp

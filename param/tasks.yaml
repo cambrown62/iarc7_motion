@@ -11,6 +11,8 @@ planning_lag: .30
 planner_coordinate_frame_offset: 10.0
 # timeout for time to get a plan
 planning_timeout: .5
+# distance from goal to stop replanning
+done_replanning_radius: .75
 
 # TAKEOFF TASK
 # Delay between arming and taking off
@@ -40,7 +42,6 @@ translation_xyz_tolerance : 0.3
 control_lag             : 0.3
 
 # GO TO ROOMBA
-go_to_roomba_tolerance: 0.3
 go_to_roomba_height: 1.5
 
 # TRACK ROOMBA
