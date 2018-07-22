@@ -87,7 +87,8 @@ class GoToRoombaTask(AbstractTask):
                 else:
                     return (TaskRunning(), NopCommand())
 
-            self._check_roomba_in_sight()
+            if not self._check_roomba_in_sight():
+                return (TaskFailed(msg='Cannnot see Roomba in Go To Roomba.'))
 
             expected_time = rospy.Time.now() + self._PLANNING_LAG
             starting = self._linear_gen.expected_point_at_time(expected_time)
@@ -102,15 +103,15 @@ class GoToRoombaTask(AbstractTask):
             roomba_pose = self._roomba_odometry.pose.pose.position
             roomba_twist = self._roomba_odometry.twist.twist.linear
 
-            x_traveled = roomba_twist.x * self._PLANNING_LAG
-            y_traveled = roomba_twist.y * self._PLANNING_LAG
+            x_traveled = roomba_twist.x * self._PLANNING_LAG.to_sec()
+            y_traveled = roomba_twist.y * self._PLANNING_LAG.to_sec()
 
-            goal_x = roomba_pose.x + x_traveled + self._COORDINATE_FRAME_OFFSET
-            goal_y = roomba_pose.y + y_traveled + self._COORDINATE_FRAME_OFFSET
+            self._goal_x = roomba_pose.x + x_traveled + self._COORDINATE_FRAME_OFFSET
+            self._goal_y = roomba_pose.y + y_traveled + self._COORDINATE_FRAME_OFFSET
 
             _distance_to_goal = math.sqrt(
-                        (self._corrected_start_x-goal_x)**2 +
-                        (self._corrected_start_y-goal_y)**2)
+                        (self._corrected_start_x-self._goal_x)**2 +
+                        (self._corrected_start_y-self._goal_y)**2)
 
             if _distance_to_goal < self._DONE_REPLAN_DIST:
                 if self._plan is not None:
@@ -157,9 +158,9 @@ class GoToRoombaTask(AbstractTask):
         start.motion_point.twist.linear.z = self._vel_start.z
 
         goal = MotionPointStamped()
-        goal.motion_point.pose.position.x = self._corrected_goal_x
-        goal.motion_point.pose.position.y = self._corrected_goal_y
-        goal.motion_point.pose.position.z = self._corrected_goal_z
+        goal.motion_point.pose.position.x = self._goal_x
+        goal.motion_point.pose.position.y = self._goal_y
+        goal.motion_point.pose.position.z = self._HEIGHT
 
         request.start = start
         request.goal = goal
