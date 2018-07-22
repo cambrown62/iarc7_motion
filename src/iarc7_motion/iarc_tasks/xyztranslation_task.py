@@ -99,7 +99,6 @@ class XYZTranslationTask(AbstractTask):
                     return (TaskFailed(msg='Started too close to goal to do anything'),)
 
             if self._state == XYZTranslationTaskState.INIT:
-                self._sent_plan_time = rospy.Time.now()
                 self.topic_buffer.make_plan_request(self._generate_request(expected_time),
                                                     self._feedback_callback)
                 self._state = XYZTranslationTaskState.WAITING
@@ -107,10 +106,8 @@ class XYZTranslationTask(AbstractTask):
             if self._state == XYZTranslationTaskState.PLAN_RECEIVED:
                 self.topic_buffer.make_plan_request(self._generate_request(expected_time),
                                                     self._feedback_callback)
-
                 if self._feedback is not None and self._feedback.success:
                     self._state = XYZTranslationTaskState.WAITING
-                    self._sent_plan_time = rospy.Time.now()
                     # send LLM the plan we received
                     return (TaskRunning(), GlobalPlanCommand(self._plan))
 
@@ -140,6 +137,9 @@ class XYZTranslationTask(AbstractTask):
 
         request.start = start
         request.goal = goal
+
+        self._sent_plan_time = rospy.Time.now()
+
         return request
 
     def _feedback_callback(self, status, msg):
