@@ -7,8 +7,6 @@ max_translation_speed: 1.0
 max_z_velocity: 2.0
 # planner lag, in seconds
 planning_lag: .30
-# offset to correct for coordinate frame differences
-planner_coordinate_frame_offset: 10.0
 # timeout for time to get a plan
 planning_timeout: .5
 # distance from goal to stop replanning

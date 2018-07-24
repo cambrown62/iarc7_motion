@@ -33,11 +33,8 @@ class XYZTranslationTask(AbstractTask):
         self._complete_time = None
         self._sent_plan_time = None
 
-        self._corrected_start_x = None
-        self._corrected_start_y = None
-        self._corrected_start_z = None
-
-        self._vel_start = None
+        self._starting_pose = None
+        self._starting_vel = None
 
         self._lock = threading.RLock()
 
@@ -46,7 +43,6 @@ class XYZTranslationTask(AbstractTask):
         try:
             self._PLANNING_TIMEOUT = rospy.Duration(rospy.get_param('~planning_timeout'))
             self._PLANNING_LAG = rospy.Duration(rospy.get_param('~planning_lag'))
-            self._COORDINATE_FRAME_OFFSET = rospy.get_param('~planner_coordinate_frame_offset')
             self._DONE_REPLAN_DIST = rospy.get_param('~done_replanning_radius')
             self._MIN_MANEUVER_HEIGHT = rospy.get_param('~min_maneuver_height')
         except KeyError as e:
@@ -55,12 +51,12 @@ class XYZTranslationTask(AbstractTask):
 
         # Check that we aren't being requested to go below the minimum maneuver height
         # Error straight out if that's the case.
-        if task_request.z_position < self._MIN_MANEUVER_HEIGHT :
+        if task_request.z_position < self._MIN_MANEUVER_HEIGHT:
             raise ValueError('Requested z height was below the minimum maneuver height')
 
-        self._corrected_goal_x = task_request.x_position + self._COORDINATE_FRAME_OFFSET
-        self._corrected_goal_y = task_request.y_position + self._COORDINATE_FRAME_OFFSET
-        self._corrected_goal_z = task_request.z_position
+        self._goal_x = task_request.x_position
+        self._goal_y = task_request.y_position
+        self._goal_z = task_request.z_position
 
         self._state = XYZTranslationTaskState.INIT
 
@@ -78,21 +74,21 @@ class XYZTranslationTask(AbstractTask):
             expected_time = rospy.Time.now() + self._PLANNING_LAG
             starting = self._linear_gen.expected_point_at_time(expected_time)
 
-            _pose = starting.motion_point.pose.position
-            self._vel_start = starting.motion_point.twist.linear
-
-            self._corrected_start_x = _pose.x + self._COORDINATE_FRAME_OFFSET
-            self._corrected_start_y = _pose.y + self._COORDINATE_FRAME_OFFSET
-            self._corrected_start_z = _pose.z
+            self._starting_pose = starting.motion_point.pose.position
+            self._starting_vel = starting.motion_point.twist.linear
 
             _distance_to_goal = math.sqrt(
-                        (self._corrected_start_x-self._corrected_goal_x)**2 +
-                        (self._corrected_start_y-self._corrected_goal_y)**2)
+                        (self._starting_pose.x-self._goal_x)**2 +
+                        (self._starting_pose.y-self._goal_y)**2)
 
             if _distance_to_goal < self._DONE_REPLAN_DIST:
                 if self._plan is not None:
                     self._state = XYZTranslationTaskState.COMPLETING
-                    self._complete_time = self._plan.motion_points[-1].header.stamp
+                    try:
+                        self._complete_time = self._plan.motion_points[-1].header.stamp
+                    except:
+                        rospy.logerr('Planner returned an empty plan while XYZ Translate was in COMPLETING state')
+                        return (TaskAborted(),)
                     return (TaskRunning(), GlobalPlanCommand(self._plan))
                 else:
                     rospy.logerr('XYZTranslationTask: Plan is None but we are done')
@@ -122,18 +118,18 @@ class XYZTranslationTask(AbstractTask):
         request.header.stamp = expected_time
 
         start = MotionPointStamped()
-        start.motion_point.pose.position.x = self._corrected_start_x
-        start.motion_point.pose.position.y = self._corrected_start_y
-        start.motion_point.pose.position.z = self._corrected_start_z
+        start.motion_point.pose.position.x = self._starting_pose.x
+        start.motion_point.pose.position.y = self._starting_pose.y
+        start.motion_point.pose.position.z = self._starting_pose.z
 
-        start.motion_point.twist.linear.x = self._vel_start.x
-        start.motion_point.twist.linear.y = self._vel_start.y
-        start.motion_point.twist.linear.z = self._vel_start.z
+        start.motion_point.twist.linear.x = self._starting_vel.x
+        start.motion_point.twist.linear.y = self._starting_vel.y
+        start.motion_point.twist.linear.z = self._starting_vel.z
 
         goal = MotionPointStamped()
-        goal.motion_point.pose.position.x = self._corrected_goal_x
-        goal.motion_point.pose.position.y = self._corrected_goal_y
-        goal.motion_point.pose.position.z = self._corrected_goal_z
+        goal.motion_point.pose.position.x = self._goal_x
+        goal.motion_point.pose.position.y = self._goal_y
+        goal.motion_point.pose.position.z = self._goal_z
 
         request.start = start
         request.goal = goal
