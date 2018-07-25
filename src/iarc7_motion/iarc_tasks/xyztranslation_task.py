@@ -33,8 +33,7 @@ class XYZTranslationTask(AbstractTask):
         self._complete_time = None
         self._sent_plan_time = None
 
-        self._starting_pose = None
-        self._starting_vel = None
+        self._starting_motion_point = None
 
         self._lock = threading.RLock()
 
@@ -72,14 +71,14 @@ class XYZTranslationTask(AbstractTask):
                     return (TaskRunning(), NopCommand())
 
             expected_time = rospy.Time.now() + self._PLANNING_LAG
-            starting = self._linear_gen.expected_point_at_time(expected_time)
 
-            self._starting_pose = starting.motion_point.pose.position
-            self._starting_vel = starting.motion_point.twist.linear
+            self._starting_motion_point = self._linear_gen.expected_point_at_time(expected_time).motion_point
+
+            _starting_pose = self._starting_motion_point.pose.position
 
             _distance_to_goal = math.sqrt(
-                        (self._starting_pose.x-self._goal_x)**2 +
-                        (self._starting_pose.y-self._goal_y)**2)
+                        (_starting_pose.x-self._goal_x)**2 +
+                        (_starting_pose.y-self._goal_y)**2)
 
             if _distance_to_goal < self._DONE_REPLAN_DIST:
                 if self._plan is not None:
@@ -118,13 +117,7 @@ class XYZTranslationTask(AbstractTask):
         request.header.stamp = expected_time
 
         start = MotionPointStamped()
-        start.motion_point.pose.position.x = self._starting_pose.x
-        start.motion_point.pose.position.y = self._starting_pose.y
-        start.motion_point.pose.position.z = self._starting_pose.z
-
-        start.motion_point.twist.linear.x = self._starting_vel.x
-        start.motion_point.twist.linear.y = self._starting_vel.y
-        start.motion_point.twist.linear.z = self._starting_vel.z
+        start.motion_point = self._starting_motion_point
 
         goal = MotionPointStamped()
         goal.motion_point.pose.position.x = self._goal_x
