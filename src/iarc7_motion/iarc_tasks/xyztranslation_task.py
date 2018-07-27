@@ -82,12 +82,12 @@ class XYZTranslationTask(AbstractTask):
 
             if _distance_to_goal < self._DONE_REPLAN_DIST:
                 if self._plan is not None:
-                    self._state = XYZTranslationTaskState.COMPLETING
                     try:
                         self._complete_time = self._plan.motion_points[-1].header.stamp
                     except:
                         rospy.logerr('Planner returned an empty plan while XYZ Translate was in COMPLETING state')
                         return (TaskAborted(),)
+                    self._state = XYZTranslationTaskState.COMPLETING
                     return (TaskRunning(), GlobalPlanCommand(self._plan))
                 else:
                     rospy.logerr('XYZTranslationTask: Plan is None but we are done')
@@ -99,12 +99,17 @@ class XYZTranslationTask(AbstractTask):
                 self._state = XYZTranslationTaskState.WAITING
 
             if self._state == XYZTranslationTaskState.PLAN_RECEIVED:
-                self.topic_buffer.make_plan_request(self._generate_request(expected_time),
-                                                    self._feedback_callback)
-                if self._feedback is not None and self._feedback.success:
+                if self._feedback is not None:
+                    self.topic_buffer.make_plan_request(
+                        self._generate_request(expected_time, self._feedback.success),
+                        self._feedback_callback)
+
                     self._state = XYZTranslationTaskState.WAITING
                     # send LLM the plan we received
                     return (TaskRunning(), GlobalPlanCommand(self._plan))
+                else:
+                    rospy.logerr('XYZTranslationTask: In PLAN_RECEIVED state but no feedback')
+                    return (TaskFailed(msg='In PLAN_RECEIVED state but no feedback'),)
 
             if (self._sent_plan_time is not None and
                 (rospy.Time.now() - self._sent_plan_time) > self._PLANNING_TIMEOUT):
@@ -112,7 +117,7 @@ class XYZTranslationTask(AbstractTask):
 
             return (TaskRunning(), NopCommand())
 
-    def _generate_request(self, expected_time):
+    def _generate_request(self, expected_time, reset_timer=True):
         request = PlanGoal()
         request.header.stamp = expected_time
 
@@ -127,7 +132,8 @@ class XYZTranslationTask(AbstractTask):
         request.start = start
         request.goal = goal
 
-        self._sent_plan_time = rospy.Time.now()
+        if reset_timer:
+            self._sent_plan_time = rospy.Time.now()
 
         return request
 
