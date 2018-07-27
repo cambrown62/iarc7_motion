@@ -20,7 +20,6 @@ class GoToRoombaState(object):
     COMPLETING = 4
 
 class GoToRoombaTask(AbstractTask):
-
     def __init__(self, task_request):
         super(GoToRoombaTask, self).__init__()
 
@@ -41,9 +40,7 @@ class GoToRoombaTask(AbstractTask):
         self._x_position = None
         self._y_position = None
 
-        self._corrected_start_x = None
-        self._corrected_start_y = None
-        self._corrected_start_z = None
+        self._starting_motion_point = None
 
         self._vel_start = None
 
@@ -58,7 +55,6 @@ class GoToRoombaTask(AbstractTask):
             self._MIN_MANEUVER_HEIGHT = rospy.get_param('~min_maneuver_height')
             self._PLANNING_TIMEOUT = rospy.Duration(rospy.get_param('~planning_timeout'))
             self._PLANNING_LAG = rospy.Duration(rospy.get_param('~planning_lag'))
-            self._COORDINATE_FRAME_OFFSET = rospy.get_param('~planner_coordinate_frame_offset')
             self._HEIGHT = rospy.get_param('~go_to_roomba_height')
             self._DONE_REPLAN_DIST = rospy.get_param('~done_replanning_radius')
         except KeyError as e:
@@ -91,14 +87,10 @@ class GoToRoombaTask(AbstractTask):
                 return (TaskFailed(msg='Cannnot see Roomba in Go To Roomba.'))
 
             expected_time = rospy.Time.now() + self._PLANNING_LAG
-            starting = self._linear_gen.expected_point_at_time(expected_time)
 
-            _pose = starting.motion_point.pose.position
-            self._vel_start = starting.motion_point.twist.linear
+            self._starting_motion_point = self._linear_gen.expected_point_at_time(expected_time).motion_point
 
-            self._corrected_start_x = _pose.x + self._COORDINATE_FRAME_OFFSET
-            self._corrected_start_y = _pose.y + self._COORDINATE_FRAME_OFFSET
-            self._corrected_start_z = _pose.z
+            _starting_pose = self._starting_motion_point.pose.position
 
             roomba_pose = self._roomba_odometry.pose.pose.position
             roomba_twist = self._roomba_odometry.twist.twist.linear
@@ -106,21 +98,25 @@ class GoToRoombaTask(AbstractTask):
             x_traveled = roomba_twist.x * self._PLANNING_LAG.to_sec()
             y_traveled = roomba_twist.y * self._PLANNING_LAG.to_sec()
 
-            self._goal_x = roomba_pose.x + x_traveled + self._COORDINATE_FRAME_OFFSET
-            self._goal_y = roomba_pose.y + y_traveled + self._COORDINATE_FRAME_OFFSET
+            self._goal_x = roomba_pose.x + x_traveled
+            self._goal_y = roomba_pose.y + y_traveled
 
             _distance_to_goal = math.sqrt(
-                        (self._corrected_start_x-self._goal_x)**2 +
-                        (self._corrected_start_y-self._goal_y)**2)
+                        (_starting_pose.x-self._goal_x)**2 +
+                        (_starting_pose.y-self._goal_y)**2)
 
             if _distance_to_goal < self._DONE_REPLAN_DIST:
                 if self._plan is not None:
-                    self._state = GoToRoombaState .COMPLETING
-                    self._complete_time = self._plan.motion_points[-1].header.stamp
+                    try:
+                        self._complete_time = self._plan.motion_points[-1].header.stamp
+                    except:
+                        rospy.logerr('Planner returned an empty plan while GoToRoomba was in COMPLETING state')
+                        return (TaskAborted(),)
+                    self._state = GoToRoombaState.COMPLETING
                     return (TaskRunning(), GlobalPlanCommand(self._plan))
                 else:
                     rospy.logerr('GoToRoombaTask: Plan is None but we are done')
-                    return (TaskFailed(msg='Started too close to goal to do anything'),)
+                    return (TaskFailed(msg='Started too close to roomba to do anything'),)
 
             if self._state == GoToRoombaState.INIT:
                 self._sent_plan_time = rospy.Time.now()
@@ -129,33 +125,31 @@ class GoToRoombaTask(AbstractTask):
                 self._state = GoToRoombaState.WAITING
 
             if self._state == GoToRoombaState.PLAN_RECEIVED:
-                self.topic_buffer.make_plan_request(self._generate_request(expected_time),
-                                                    self._feedback_callback)
+                if self._feedback is not None:
+                    self.topic_buffer.make_plan_request(
+                        self._generate_request(expected_time, self._feedback.success),
+                        self._feedback_callback)
 
-                if self._feedback is not None and self._feedback.success:
-                    self._state = GoToRoombaState .WAITING
-                    self._sent_plan_time = rospy.Time.now()
-                    # send LLM the plan we received
-                    return (TaskRunning(), GlobalPlanCommand(self._plan))
+                    self._state = GoToRoombaState.WAITING
+                    if self._feedback.success:
+                        # send LLM the plan we received
+                        return (TaskRunning(), GlobalPlanCommand(self._plan))
+                else:
+                    rospy.logerr('GoToRoombaTask: In PLAN_RECEIVED state but no feedback')
+                    return (TaskFailed(msg='In PLAN_RECEIVED state but no feedback'),)
 
             if (self._sent_plan_time is not None and
                 (rospy.Time.now() - self._sent_plan_time) > self._PLANNING_TIMEOUT):
-                return (TaskFailed(msg='GoToRoombaTask: planner took too long to plan'),)
+                return (TaskFailed(msg='GoToRoomba: planner took too long to plan'),)
 
             return (TaskRunning(), NopCommand())
 
-    def _generate_request(self, expected_time):
+    def _generate_request(self, expected_time, reset_timer=True):
         request = PlanGoal()
         request.header.stamp = expected_time
 
         start = MotionPointStamped()
-        start.motion_point.pose.position.x = self._corrected_start_x
-        start.motion_point.pose.position.y = self._corrected_start_y
-        start.motion_point.pose.position.z = self._corrected_start_z
-
-        start.motion_point.twist.linear.x = self._vel_start.x
-        start.motion_point.twist.linear.y = self._vel_start.y
-        start.motion_point.twist.linear.z = self._vel_start.z
+        start.motion_point = self._starting_motion_point
 
         goal = MotionPointStamped()
         goal.motion_point.pose.position.x = self._goal_x
@@ -164,6 +158,10 @@ class GoToRoombaTask(AbstractTask):
 
         request.start = start
         request.goal = goal
+
+        if reset_timer:
+            self._sent_plan_time = rospy.Time.now()
+
         return request
 
     def _feedback_callback(self, status, msg):

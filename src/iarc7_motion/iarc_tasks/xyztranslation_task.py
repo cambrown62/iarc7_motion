@@ -75,7 +75,6 @@ class XYZTranslationTask(AbstractTask):
             self._starting_motion_point = self._linear_gen.expected_point_at_time(expected_time).motion_point
 
             _starting_pose = self._starting_motion_point.pose.position
-
             _distance_to_goal = math.sqrt(
                         (_starting_pose.x-self._goal_x)**2 +
                         (_starting_pose.y-self._goal_y)**2)
@@ -105,8 +104,9 @@ class XYZTranslationTask(AbstractTask):
                         self._feedback_callback)
 
                     self._state = XYZTranslationTaskState.WAITING
-                    # send LLM the plan we received
-                    return (TaskRunning(), GlobalPlanCommand(self._plan))
+                    if self._feedback.success:
+                        # send LLM the plan we received
+                        return (TaskRunning(), GlobalPlanCommand(self._plan))
                 else:
                     rospy.logerr('XYZTranslationTask: In PLAN_RECEIVED state but no feedback')
                     return (TaskFailed(msg='In PLAN_RECEIVED state but no feedback'),)
