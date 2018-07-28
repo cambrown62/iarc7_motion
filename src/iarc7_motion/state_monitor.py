@@ -138,7 +138,7 @@ class StateMonitor:
             # to perform
             elif isinstance(state, task_states.TaskCanceled):
                 # assumes that canceling land results in velocity mode
-                if isinstance(self._last_task, LandTask): 
+                if isinstance(self._last_task, LandTask):
                     self._state = RobotStates.NORMAL
                 # Takeoff needs to take the drone above the safe height
                 # Hit roomba if canceled might not have taken the drone back up
@@ -189,13 +189,6 @@ class StateMonitor:
             state.obstacles = self._obstacles
             state.arm_status = self._arm_status
             return state
-
-    # Handles no task running timeouts
-    def get_timeout_twist(self):
-        twist = TwistStamped()
-        twist.header.stamp = rospy.Time.now()
-        return twist
-
 
     def signal_safety_active(self):
         with self._lock:
