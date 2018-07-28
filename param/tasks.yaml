@@ -6,11 +6,11 @@ max_translation_speed: 1.0
 # maximum z velocity
 max_z_velocity: 2.0
 # planner lag, in seconds
-planning_lag: .30
+planning_lag: .35
 # timeout for time to get a plan
 planning_timeout: .5
 # distance from goal to stop replanning
-done_replanning_radius: .75
+done_replanning_radius: 1.0
 
 # TAKEOFF TASK
 # Delay between arming and taking off
