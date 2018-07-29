@@ -6,7 +6,7 @@ max_translation_speed: 1.0
 # maximum z velocity
 max_z_velocity: 2.0
 # planner lag, in seconds
-planning_lag: .35
+planning_lag: .100
 # timeout for time to get a plan
 planning_timeout: .5
 # distance from goal to stop replanning

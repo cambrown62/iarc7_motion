@@ -2,6 +2,7 @@ import math
 import rospy
 import tf2_ros
 import threading
+import cPickle as pickle
 
 from .abstract_task import AbstractTask
 from iarc_tasks.task_states import (TaskRunning,
@@ -35,6 +36,9 @@ class XYZTranslationTask(AbstractTask):
 
         self._starting_motion_point = None
 
+        # self._list_info = []
+        # self._request_list = []
+
         self._lock = threading.RLock()
 
         self._linear_gen = self.topic_buffer.get_linear_motion_profile_generator()
@@ -66,12 +70,16 @@ class XYZTranslationTask(AbstractTask):
 
             if self._state == XYZTranslationTaskState.COMPLETING:
                 if (rospy.Time.now() + rospy.Duration(.10)) >= self._complete_time:
+                    # name = '/home/andrew/data.bin'
+                    # file = open(name, 'wb')
+                    # pickle.dump(self._list_info, file)
+                    # file.close()
+                    # self._linear_gen.dump_info()
                     return (TaskDone(),)
                 else:
                     return (TaskRunning(), NopCommand())
 
             expected_time = rospy.Time.now() + self._PLANNING_LAG
-
             self._starting_motion_point = self._linear_gen.expected_point_at_time(expected_time).motion_point
 
             _starting_pose = self._starting_motion_point.pose.position
@@ -129,6 +137,8 @@ class XYZTranslationTask(AbstractTask):
         goal.motion_point.pose.position.y = self._goal_y
         goal.motion_point.pose.position.z = self._goal_z
 
+        self._request_list = [start, goal, None]
+
         request.start = start
         request.goal = goal
 
@@ -141,6 +151,8 @@ class XYZTranslationTask(AbstractTask):
         with self._lock:
             self._feedback = msg
             self._plan = msg.plan
+            # self._request_list[2] = msg.plan
+            # self._list_info.append(self._request_list)
             self._state = XYZTranslationTaskState.PLAN_RECEIVED
 
     def cancel(self):
