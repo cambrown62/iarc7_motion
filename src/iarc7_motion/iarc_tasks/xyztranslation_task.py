@@ -137,7 +137,7 @@ class XYZTranslationTask(AbstractTask):
         goal.motion_point.pose.position.y = self._goal_y
         goal.motion_point.pose.position.z = self._goal_z
 
-        self._request_list = [start, goal, None]
+        # self._request_list = [start, goal, None]
 
         request.start = start
         request.goal = goal
